@@ -38,6 +38,9 @@ import com.massivecraft.creativegates.entity.UConf;
 import com.massivecraft.creativegates.entity.UConfColls;
 import com.massivecraft.creativegates.entity.UGate;
 import com.massivecraft.creativegates.entity.UGateColls;
+import com.massivecraft.creativegates.events.EventCreativeGateCreate;
+import com.massivecraft.creativegates.events.EventCreativeGateDestroy;
+import com.massivecraft.creativegates.events.EventCreativeGateUse;
 import com.massivecraft.massivecore.Engine;
 import com.massivecraft.massivecore.MassiveCore;
 import com.massivecraft.massivecore.ps.PS;
@@ -250,6 +253,13 @@ public class EngineMain extends Engine
 		// ... and the player is alive ...
 		if (player.isDead()) return;
 		
+		// ... and the event hasn't been cancelled ...  
+		EventCreativeGateUse useEvent = new EventCreativeGateUse(ugate, player);
+		useEvent.run();
+		if (useEvent.isCancelled()) return;
+		
+		ugate = useEvent.getGate();
+		
 		// ... then transport the player.
 		ugate.transport(player);
 	}
@@ -258,17 +268,35 @@ public class EngineMain extends Engine
 	// DESTROY GATE
 	// -------------------------------------------- //
 	
-	public static void destroyGate(Block block)
+	public static Boolean destroyGate(Block block)
 	{
+		return destroyGate(block, null);
+	}
+	
+	public static Boolean destroyGate(Block block, Player player)
+	{
+		// If there is a gate ... 
 		UGate ugate = UGate.get(block);
-		if (ugate == null) return;
+		if (ugate == null) return false;
+		
+		// ... and its being destroyed by a player ... 
+		if (player != null)
+		{
+			// ... check it against our event ... 
+			EventCreativeGateDestroy event = new EventCreativeGateDestroy(ugate, player);
+			event.run();
+			if (event.isCancelled()) return false;
+		}
+		
+		// ... destroy the gate.
 		ugate.destroy();
+		return true;
 	}
 	
 	@EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
 	public void destroyGate(BlockBreakEvent event)
 	{
-		destroyGate(event.getBlock());
+		destroyGate(event.getBlock(), event.getPlayer());
 	}
 	
 	@EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -280,9 +308,12 @@ public class EngineMain extends Engine
 	@EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
 	public void destroyGate(EntityExplodeEvent event)
 	{
+		Player player = null;
+		if (event.getEntityType() == EntityType.PLAYER) player = (Player) event.getEntity();
+		
 		for (Block block : event.blockList())
 		{
-			destroyGate(block);
+			destroyGate(block, player);
 		}
 	}
 	
@@ -433,6 +464,17 @@ public class EngineMain extends Engine
 			{
 				coords.add(PS.valueOf(block).withWorld(null));
 			}
+			
+			// ... check it against the event ...
+			EventCreativeGateCreate createEvent = new EventCreativeGateCreate(player, startBlock, newNetworkId, exit, coords); 
+			createEvent.run();
+			if (createEvent.isCancelled()) return;
+			
+			// ... update the values from the event ...
+			startBlock = createEvent.getStartBlock();
+			newNetworkId = createEvent.getNetworkId();
+			exit = createEvent.getExit();
+			coords = createEvent.getCoords();
 			
 			// ... create the gate ...
 			UGate newGate = UGateColls.get().get(startBlock).create();
